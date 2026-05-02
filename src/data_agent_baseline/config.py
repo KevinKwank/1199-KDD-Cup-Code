@@ -23,19 +23,27 @@ class DatasetConfig:
 
 @dataclass(frozen=True, slots=True)
 class AgentConfig:
-    model: str = "gpt-4.1-mini"
-    api_base: str = "https://api.openai.com/v1"
+    model: str = "qwen3.6-35b-a3b"
+    api_base: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key: str = ""
     max_steps: int = 16
     temperature: float = 0.0
+    max_tokens: int = 16384
+    timeout: int = 120
+    max_retries: int = 3
 
 
 @dataclass(frozen=True, slots=True)
 class RunConfig:
     output_dir: Path = field(default_factory=_default_run_output_dir)
     run_id: str | None = None
-    max_workers: int = 4
+    max_workers: int = 8
     task_timeout_seconds: int = 600
+    timeout_easy: int = 120
+    timeout_medium: int = 240
+    timeout_hard: int = 300
+    timeout_extreme: int = 480
+    total_time_limit: int = 43200
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +81,9 @@ def load_app_config(config_path: Path) -> AppConfig:
         api_key=str(agent_payload.get("api_key", agent_defaults.api_key)),
         max_steps=int(agent_payload.get("max_steps", agent_defaults.max_steps)),
         temperature=float(agent_payload.get("temperature", agent_defaults.temperature)),
+        max_tokens=int(agent_payload.get("max_tokens", agent_defaults.max_tokens)),
+        timeout=int(agent_payload.get("timeout", agent_defaults.timeout)),
+        max_retries=int(agent_payload.get("max_retries", agent_defaults.max_retries)),
     )
     raw_run_id = run_payload.get("run_id")
     run_id = run_defaults.run_id
@@ -85,5 +96,20 @@ def load_app_config(config_path: Path) -> AppConfig:
         run_id=run_id,
         max_workers=int(run_payload.get("max_workers", run_defaults.max_workers)),
         task_timeout_seconds=int(run_payload.get("task_timeout_seconds", run_defaults.task_timeout_seconds)),
+        timeout_easy=int(run_payload.get("timeout_easy", run_defaults.timeout_easy)),
+        timeout_medium=int(run_payload.get("timeout_medium", run_defaults.timeout_medium)),
+        timeout_hard=int(run_payload.get("timeout_hard", run_defaults.timeout_hard)),
+        timeout_extreme=int(run_payload.get("timeout_extreme", run_defaults.timeout_extreme)),
+        total_time_limit=int(run_payload.get("total_time_limit", run_defaults.total_time_limit)),
     )
     return AppConfig(dataset=dataset_config, agent=agent_config, run=run_config)
+
+
+def load_app_config_from_env() -> AppConfig:
+    import os
+    agent = AgentConfig(
+        model=os.environ.get("MODEL_NAME", "qwen3.5-35b-a3b"),
+        api_base=os.environ.get("MODEL_API_URL", ""),
+        api_key=os.environ.get("MODEL_API_KEY", ""),
+    )
+    return AppConfig(agent=agent)

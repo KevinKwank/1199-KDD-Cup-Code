@@ -21,10 +21,12 @@ def inspect_sqlite_schema(path: Path) -> dict[str, object]:
         ).fetchall()
         tables: list[dict[str, object]] = []
         for name, create_sql in rows:
+            count = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
             tables.append(
                 {
                     "name": name,
                     "create_sql": create_sql,
+                    "row_count": count,
                 }
             )
     return {

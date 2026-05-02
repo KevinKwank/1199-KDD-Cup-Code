@@ -11,10 +11,14 @@ from data_agent_baseline.tools.filesystem import (
     read_json_preview,
     resolve_context_path,
 )
+from data_agent_baseline.tools.data_summary import summarize_csv, summarize_sqlite
 from data_agent_baseline.tools.python_exec import execute_python_code
 from data_agent_baseline.tools.sqlite import execute_read_only_sql, inspect_sqlite_schema
+from data_agent_baseline.context.document import DocumentProcessor
 
-EXECUTE_PYTHON_TIMEOUT_SECONDS = 30
+_doc_processor = DocumentProcessor()
+
+EXECUTE_PYTHON_TIMEOUT_SECONDS = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,25 +40,25 @@ ToolHandler = Callable[[PublicTask, dict[str, Any]], ToolExecutionResult]
 
 
 def _list_context(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
-    max_depth = int(action_input.get("max_depth", 4))
+    max_depth = int(action_input.get("max_depth", 6))
     return ToolExecutionResult(ok=True, content=list_context_tree(task, max_depth=max_depth))
 
 
 def _read_csv(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
     path = str(action_input["path"])
-    max_rows = int(action_input.get("max_rows", 20))
+    max_rows = int(action_input.get("max_rows", 50))
     return ToolExecutionResult(ok=True, content=read_csv_preview(task, path, max_rows=max_rows))
 
 
 def _read_json(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
     path = str(action_input["path"])
-    max_chars = int(action_input.get("max_chars", 4000))
+    max_chars = int(action_input.get("max_chars", 8000))
     return ToolExecutionResult(ok=True, content=read_json_preview(task, path, max_chars=max_chars))
 
 
 def _read_doc(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
     path = str(action_input["path"])
-    max_chars = int(action_input.get("max_chars", 4000))
+    max_chars = int(action_input.get("max_chars", 8000))
     return ToolExecutionResult(ok=True, content=read_doc_preview(task, path, max_chars=max_chars))
 
 
@@ -78,6 +82,41 @@ def _execute_python(task: PublicTask, action_input: dict[str, Any]) -> ToolExecu
         timeout_seconds=EXECUTE_PYTHON_TIMEOUT_SECONDS,
     )
     return ToolExecutionResult(ok=bool(content.get("success")), content=content)
+
+
+def _read_doc_segment(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
+    path = resolve_context_path(task, str(action_input["path"]))
+    index = int(action_input.get("segment_index", 0))
+    segment = _doc_processor.get_segment(path, index)
+    if segment is None:
+        return ToolExecutionResult(ok=False, content=f"Segment {index} not found. Total segments: {_doc_processor.get_segment_count(path)}")
+    return ToolExecutionResult(ok=True, content=segment)
+
+
+def _search_doc_keywords(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
+    path = resolve_context_path(task, str(action_input["path"]))
+    keywords = action_input.get("keywords", [])
+    if isinstance(keywords, str):
+        import json
+        keywords = json.loads(keywords) if keywords.startswith("[") else [keywords]
+    if not keywords:
+        return ToolExecutionResult(ok=False, content="No keywords provided.")
+    results = _doc_processor.search_keywords(path, keywords)
+    return ToolExecutionResult(ok=True, content=results)
+
+
+def _get_doc_info(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
+    path = resolve_context_path(task, str(action_input["path"]))
+    count = _doc_processor.get_segment_count(path)
+    return ToolExecutionResult(ok=True, content={"segment_count": count, "max_chars_per_segment": _doc_processor.max_chars})
+
+
+def _summarize_csv(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
+    return ToolExecutionResult(ok=True, content=summarize_csv(task, action_input))
+
+
+def _summarize_sqlite(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
+    return ToolExecutionResult(ok=True, content=summarize_sqlite(task, action_input))
 
 
 def _answer(_: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
@@ -130,6 +169,38 @@ class ToolRegistry:
 
 def create_default_tool_registry() -> ToolRegistry:
     specs = {
+        "summarize_csv": ToolSpec(
+            name="summarize_csv",
+            description=(
+                "Generate a statistical summary of a CSV file: shape, column dtypes, "
+                "null counts, unique counts, and numeric column statistics. "
+                "More efficient than read_csv for understanding data overview."
+            ),
+            input_schema={"path": "relative/path/to/file.csv"},
+        ),
+        "summarize_sqlite": ToolSpec(
+            name="summarize_sqlite",
+            description=(
+                "Generate a statistical summary of a SQLite database: table list, "
+                "row counts, and column schemas. Use before writing SQL queries."
+            ),
+            input_schema={"path": "relative/path/to/file.sqlite"},
+        ),
+        "read_doc_segment": ToolSpec(
+            name="read_doc_segment",
+            description="Read a specific segment of a long document. Use get_doc_info first to know how many segments exist.",
+            input_schema={"path": "doc/path.md", "segment_index": "0"},
+        ),
+        "search_doc_keywords": ToolSpec(
+            name="search_doc_keywords",
+            description="Search for keywords across all segments. Returns matching segment indices, matched keywords, and content previews. Essential for large documents.",
+            input_schema={"path": "doc/path.md", "keywords": '["keyword1","keyword2"]'},
+        ),
+        "get_doc_info": ToolSpec(
+            name="get_doc_info",
+            description="Get document metadata: total segment count and max characters per segment. Call before read_doc_segment.",
+            input_schema={"path": "doc/path.md"},
+        ),
         "answer": ToolSpec(
             name="answer",
             description="Submit the final answer table. This is the only valid terminating action.",
@@ -162,25 +233,30 @@ def create_default_tool_registry() -> ToolRegistry:
         "list_context": ToolSpec(
             name="list_context",
             description="List files and directories available under context.",
-            input_schema={"max_depth": 4},
+            input_schema={"max_depth": 6},
         ),
         "read_csv": ToolSpec(
             name="read_csv",
             description="Read a preview of a CSV file inside context.",
-            input_schema={"path": "relative/path/to/file.csv", "max_rows": 20},
+            input_schema={"path": "relative/path/to/file.csv", "max_rows": 50},
         ),
         "read_doc": ToolSpec(
             name="read_doc",
             description="Read a text-like document inside context.",
-            input_schema={"path": "relative/path/to/file.md", "max_chars": 4000},
+            input_schema={"path": "relative/path/to/file.md", "max_chars": 8000},
         ),
         "read_json": ToolSpec(
             name="read_json",
             description="Read a preview of a JSON file inside context.",
-            input_schema={"path": "relative/path/to/file.json", "max_chars": 4000},
+            input_schema={"path": "relative/path/to/file.json", "max_chars": 8000},
         ),
     }
     handlers = {
+        "summarize_csv": _summarize_csv,
+        "summarize_sqlite": _summarize_sqlite,
+        "read_doc_segment": _read_doc_segment,
+        "search_doc_keywords": _search_doc_keywords,
+        "get_doc_info": _get_doc_info,
         "answer": _answer,
         "execute_context_sql": _execute_context_sql,
         "execute_python": _execute_python,

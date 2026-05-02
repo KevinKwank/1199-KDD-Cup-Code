@@ -67,6 +67,9 @@ def build_model_adapter(config: AppConfig):
         api_base=config.agent.api_base,
         api_key=config.agent.api_key,
         temperature=config.agent.temperature,
+        max_tokens=config.agent.max_tokens,
+        timeout=config.agent.timeout,
+        max_retries=config.agent.max_retries,
     )
 
 
@@ -130,7 +133,18 @@ def _run_single_task_in_subprocess(task_id: str, config: AppConfig, queue: multi
 
 
 def _run_single_task_with_timeout(*, task_id: str, config: AppConfig) -> dict[str, Any]:
-    timeout_seconds = config.run.task_timeout_seconds
+    dataset = DABenchPublicDataset(config.dataset.root_path)
+    task = dataset.get_task(task_id)
+    difficulty = task.difficulty
+
+    timeout_map = {
+        "easy": config.run.timeout_easy,
+        "medium": config.run.timeout_medium,
+        "hard": config.run.timeout_hard,
+        "extreme": config.run.timeout_extreme,
+    }
+    timeout_seconds = timeout_map.get(difficulty, config.run.task_timeout_seconds)
+
     if timeout_seconds <= 0:
         return _run_single_task_core(task_id=task_id, config=config)
 
@@ -222,6 +236,9 @@ def run_benchmark(
     tasks = dataset.iter_tasks()
     if limit is not None:
         tasks = tasks[:limit]
+
+    difficulty_order = {"easy": 0, "medium": 1, "hard": 2, "extreme": 3}
+    tasks = sorted(tasks, key=lambda t: difficulty_order.get(t.difficulty, 99))
 
     effective_workers = config.run.max_workers
     if effective_workers < 1:

@@ -22,6 +22,7 @@ class StepRecord:
 
 @dataclass(slots=True)
 class AgentRuntimeState:
+    plan: str | None = None
     steps: list[StepRecord] = field(default_factory=list)
     answer: AnswerTable | None = None
     failure_reason: str | None = None

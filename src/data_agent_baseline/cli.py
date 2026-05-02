@@ -257,5 +257,37 @@ def run_benchmark_command(
     console.print(f"Succeeded tasks: {sum(1 for item in artifacts if item.succeeded)}")
 
 
+@app.command("eval")
+def eval_command(
+    predictions_dir: str = typer.Option(..., help="Directory containing prediction.csv files"),
+    ground_truth_dir: str = typer.Option(..., help="Directory containing ground truth prediction.csv files"),
+) -> None:
+    from data_agent_baseline.eval.scorer import ColumnScorer
+
+    scorer = ColumnScorer()
+    total_score = 0.0
+    count = 0
+
+    pred_path = Path(predictions_dir)
+    gt_path = Path(ground_truth_dir)
+
+    for pred_file in sorted(pred_path.glob("*/prediction.csv")):
+        task_id = pred_file.parent.name
+        gt_file = gt_path / task_id / "prediction.csv"
+        if not gt_file.exists():
+            console.print(f"  [yellow]SKIP[/yellow] {task_id}: ground truth not found")
+            continue
+
+        result = scorer.score(pred_file, gt_file)
+        total_score += result["score"]
+        count += 1
+        console.print(f"  {task_id}: score={result['score']:.4f} recall={result['recall']:.4f}")
+
+    if count > 0:
+        console.print(f"\n  [bold]Average score: {total_score/count:.4f}[/bold] ({count} tasks)")
+    else:
+        console.print("[yellow]No matching tasks found.[/yellow]")
+
+
 def main() -> None:
     app()

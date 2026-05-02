@@ -76,11 +76,20 @@ def _run_python_code(
     stderr_path: str,
     queue: multiprocessing.Queue[Any],
 ) -> None:
+    import pandas as pd
+    import numpy as np
+    import json as _json
+    import sqlite3 as _sqlite3
+
     namespace: dict[str, Any] = {
         "__builtins__": __builtins__,
         "__name__": "__main__",
         "context_root": context_root,
         "Path": Path,
+        "pd": pd,
+        "np": np,
+        "json": _json,
+        "sqlite3": _sqlite3,
     }
     resolved_stdout_path = Path(stdout_path)
     resolved_stderr_path = Path(stderr_path)
@@ -100,7 +109,7 @@ def _run_python_code(
         )
 
 
-def execute_python_code(context_root: Path, code: str, *, timeout_seconds: int = 30) -> dict[str, Any]:
+def execute_python_code(context_root: Path, code: str, *, timeout_seconds: int = 60) -> dict[str, Any]:
     resolved_context_root = context_root.resolve()
     with tempfile.TemporaryDirectory() as temp_dir:
         stdout_path = Path(temp_dir) / "stdout.txt"
