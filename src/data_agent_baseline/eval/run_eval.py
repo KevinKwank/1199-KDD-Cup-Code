@@ -15,6 +15,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger(__name__)
 
 
+def _find_ground_truth(dataset_root: Path, task_id: str) -> Path | None:
+    candidates = [
+        dataset_root / task_id / "prediction.csv",
+        dataset_root / task_id / "gold.csv",
+        dataset_root.parent / "output" / task_id / "gold.csv",
+        dataset_root.parent / "output" / task_id / "prediction.csv",
+        dataset_root.parent.parent / "output" / task_id / "gold.csv",
+        dataset_root.parent.parent / "output" / task_id / "prediction.csv",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def main():
     config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("configs/dev.yaml")
     limit = int(sys.argv[2]) if len(sys.argv) > 2 else None
@@ -24,20 +39,20 @@ def main():
     if limit:
         logger.info(f"Limit: {limit} tasks")
 
-    summary, artifacts = run_benchmark(config=config, limit=limit)
+    run_output_dir, artifacts = run_benchmark(config=config, limit=limit)
 
     scorer = ColumnScorer()
     results = []
     dataset = config.dataset
 
     for artifact in artifacts:
-        pred_path = config.run.output_dir / config.run.run_id / artifact.task_id / "prediction.csv"
-        gt_path = dataset.root_path / artifact.task_id / "prediction.csv"
+        pred_path = artifact.prediction_csv_path or run_output_dir / artifact.task_id / "prediction.csv"
+        gt_path = _find_ground_truth(dataset.root_path, artifact.task_id)
 
         if not pred_path.exists():
             results.append({"task_id": artifact.task_id, "error": "prediction not found"})
             continue
-        if not gt_path.exists():
+        if gt_path is None:
             results.append({"task_id": artifact.task_id, "error": "ground truth not found"})
             continue
 
@@ -59,10 +74,10 @@ def main():
     else:
         logger.warning("No valid scores computed.")
 
-    with open(config.run.output_dir / config.run.run_id / "eval_results.json", "w") as f:
+    with open(run_output_dir / "eval_results.json", "w") as f:
         json.dump({"results": results, "average_score": avg if scores else None}, f, indent=2)
 
-    logger.info(f"Results saved to {config.run.output_dir / config.run.run_id / 'eval_results.json'}")
+    logger.info(f"Results saved to {run_output_dir / 'eval_results.json'}")
 
 
 if __name__ == "__main__":

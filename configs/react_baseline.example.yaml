@@ -7,9 +7,12 @@ agent:
   api_key: YOUR_API_KEY
   max_steps: 16
   temperature: 0.0
+  workflow_mode: soft  # off | soft | strict
 
 run:
   output_dir: artifacts/runs
   run_id: example_run_id
+  nest_run_id: true
+  write_summary: true
   max_workers: 8
   task_timeout_seconds: 600

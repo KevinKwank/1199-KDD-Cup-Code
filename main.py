@@ -9,6 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from data_agent_baseline.config import load_app_config_from_env
 from data_agent_baseline.run.runner import run_benchmark
 
+Path("/logs").mkdir(parents=True, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -30,9 +32,10 @@ def main():
 
     logger.info(f"Model: {config.agent.model}")
     logger.info(f"API Base: {config.agent.api_base}")
+    logger.info(f"Dataset root: {config.dataset.root_path}")
+    logger.info(f"Output dir: {config.run.output_dir}")
 
     Path("/output").mkdir(parents=True, exist_ok=True)
-    Path("/logs").mkdir(parents=True, exist_ok=True)
 
     _, artifacts = run_benchmark(config=config)
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import copy
+import json
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from data_agent_baseline.benchmark.schema import AnswerTable, PublicTask
@@ -39,6 +41,27 @@ class ToolExecutionResult:
 ToolHandler = Callable[[PublicTask, dict[str, Any]], ToolExecutionResult]
 
 
+CACHEABLE_TOOLS = frozenset(
+    {
+        "get_doc_info",
+        "inspect_sqlite_schema",
+        "list_context",
+        "read_csv",
+        "read_doc",
+        "read_doc_segment",
+        "read_json",
+        "search_doc_keywords",
+        "summarize_csv",
+        "summarize_sqlite",
+    }
+)
+
+
+def _cache_key(task: PublicTask, action: str, action_input: dict[str, Any]) -> str:
+    normalized_input = json.dumps(action_input, ensure_ascii=False, sort_keys=True, default=str)
+    return f"{task.context_dir.resolve()}::{action}::{normalized_input}"
+
+
 def _list_context(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
     max_depth = int(action_input.get("max_depth", 6))
     return ToolExecutionResult(ok=True, content=list_context_tree(task, max_depth=max_depth))
@@ -69,7 +92,9 @@ def _inspect_sqlite_schema(task: PublicTask, action_input: dict[str, Any]) -> To
 
 def _execute_context_sql(task: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
     path = resolve_context_path(task, str(action_input["path"]))
-    sql = str(action_input["sql"])
+    sql = str(action_input.get("sql") or action_input.get("query"))
+    if not sql or sql == "None":
+        raise ValueError("execute_context_sql requires `sql`.")
     limit = int(action_input.get("limit", 200))
     return ToolExecutionResult(ok=True, content=execute_read_only_sql(path, sql, limit=limit))
 
@@ -152,6 +177,9 @@ def _answer(_: PublicTask, action_input: dict[str, Any]) -> ToolExecutionResult:
 class ToolRegistry:
     specs: dict[str, ToolSpec]
     handlers: dict[str, ToolHandler]
+    cache_enabled: bool = True
+    cacheable_tools: frozenset[str] = CACHEABLE_TOOLS
+    _cache: dict[str, ToolExecutionResult] = field(default_factory=dict)
 
     def describe_for_prompt(self) -> str:
         lines = []
@@ -164,6 +192,17 @@ class ToolRegistry:
     def execute(self, task: PublicTask, action: str, action_input: dict[str, Any]) -> ToolExecutionResult:
         if action not in self.handlers:
             raise KeyError(f"Unknown tool: {action}")
+        if self.cache_enabled and action in self.cacheable_tools:
+            key = _cache_key(task, action, action_input)
+            cached = self._cache.get(key)
+            if cached is not None:
+                return copy.deepcopy(cached)
+
+            result = self.handlers[action](task, action_input)
+            if result.ok and not result.is_terminal:
+                self._cache[key] = copy.deepcopy(result)
+            return result
+
         return self.handlers[action](task, action_input)
 
 

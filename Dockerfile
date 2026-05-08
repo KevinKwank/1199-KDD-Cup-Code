@@ -2,14 +2,12 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY pyproject.toml uv.lock ./
+COPY README.md ./
+COPY src/ src/
 RUN pip install --no-cache-dir uv && uv sync --frozen --no-dev
 
-COPY src/ src/
+ENV PATH="/app/.venv/bin:${PATH}"
 
 COPY main.py .
 COPY entrypoint.sh .

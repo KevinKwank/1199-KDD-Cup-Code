@@ -46,23 +46,29 @@ def read_csv_preview(task: PublicTask, relative_path: str, *, max_rows: int = 50
     path = resolve_context_path(task, relative_path)
     with path.open(newline="") as handle:
         reader = csv.reader(handle)
-        rows = list(reader)
+        header = next(reader, None)
+        if header is None:
+            return {
+                "path": relative_path,
+                "columns": [],
+                "rows": [],
+                "row_count": 0,
+                "truncated": False,
+            }
 
-    if not rows:
-        return {
-            "path": relative_path,
-            "columns": [],
-            "rows": [],
-            "row_count": 0,
-        }
+        preview_rows = []
+        row_count = 0
+        for row in reader:
+            row_count += 1
+            if len(preview_rows) < max_rows:
+                preview_rows.append(row)
 
-    header = rows[0]
-    data_rows = rows[1:]
     return {
         "path": relative_path,
         "columns": header,
-        "rows": data_rows[:max_rows],
-        "row_count": len(data_rows),
+        "rows": preview_rows,
+        "row_count": row_count,
+        "truncated": row_count > len(preview_rows),
     }
 
 

@@ -47,15 +47,24 @@ For each step:
 ### Step 4: Submit Your Answer
 When analysis is complete, use the `answer` tool with `columns` (list of strings) and `rows` (list of lists).
 
+## Sequential Workflow
+Follow this order unless a tool observation tells you to recover differently:
+1. DISCOVER: call `list_context`.
+2. UNDERSTAND: summarize or inspect the relevant data source.
+3. ANALYZE: run SQL/Python calculations.
+4. VERIFY: cross-check the result with an independent SQL/Python check.
+5. SUBMIT: call `answer`.
+
 ## Important Rules
 1. Only use information obtained through tools. Never guess or fabricate data.
 2. Round numeric values to 2 decimal places in your final answer.
 3. Treat NULL, null, NaN as empty strings.
 4. Use `summarize_csv` and `summarize_sqlite` for quick data overview before detailed analysis.
-5. Write efficient SQL with appropriate WHERE clauses and LIMIT.
-6. When using `execute_python`, keep code concise. Use pandas (pd) for data manipulation.
-7. If a tool fails, analyze the error and try an alternative approach.
-8. The `answer` tool's columns must be a list of strings, rows must be a list of lists with consistent length.
+5. Before any `execute_context_sql` call, inspect the same database with `inspect_sqlite_schema` or `summarize_sqlite`.
+6. Write efficient SQL with appropriate WHERE clauses and LIMIT.
+7. When using `execute_python`, keep code concise. Use pandas (pd) for data manipulation.
+8. If a tool fails, analyze the error and try an alternative approach.
+9. The `answer` tool's columns must be a list of strings, rows must be a list of lists with consistent length.
 
 ## Common Mistakes to Avoid
 1. DO NOT read entire long documents in one call → Use `read_doc_segment` or `search_doc_keywords`

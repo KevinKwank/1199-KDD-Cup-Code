@@ -54,7 +54,16 @@ def resolve_run_id(run_id: str | None = None) -> str:
     return normalized
 
 
-def create_run_output_dir(output_root: Path, *, run_id: str | None = None) -> tuple[str, Path]:
+def create_run_output_dir(
+    output_root: Path,
+    *,
+    run_id: str | None = None,
+    nest_run_id: bool = True,
+) -> tuple[str, Path]:
+    if not nest_run_id:
+        output_root.mkdir(parents=True, exist_ok=True)
+        return "", output_root
+
     effective_run_id = resolve_run_id(run_id)
     run_output_dir = output_root / effective_run_id
     run_output_dir.mkdir(parents=True, exist_ok=False)
@@ -109,7 +118,10 @@ def _run_single_task_core(
     agent = ReActAgent(
         model=model or build_model_adapter(config),
         tools=tools or create_default_tool_registry(),
-        config=ReActAgentConfig(max_steps=config.agent.max_steps),
+        config=ReActAgentConfig(
+            max_steps=config.agent.max_steps,
+            workflow_mode=config.agent.workflow_mode,
+        ),
     )
     run_result = agent.run(task)
     return run_result.to_dict()
@@ -230,7 +242,11 @@ def run_benchmark(
     limit: int | None = None,
     progress_callback: Callable[[TaskRunArtifacts], None] | None = None,
 ) -> tuple[Path, list[TaskRunArtifacts]]:
-    effective_run_id, run_output_dir = create_run_output_dir(config.run.output_dir, run_id=config.run.run_id)
+    effective_run_id, run_output_dir = create_run_output_dir(
+        config.run.output_dir,
+        run_id=config.run.run_id,
+        nest_run_id=config.run.nest_run_id,
+    )
 
     dataset = DABenchPublicDataset(config.dataset.root_path)
     tasks = dataset.iter_tasks()
@@ -283,15 +299,16 @@ def run_benchmark(
                     progress_callback(artifact)
             task_artifacts = [artifact for artifact in indexed_artifacts if artifact is not None]
 
-    summary_path = run_output_dir / "summary.json"
-    _write_json(
-        summary_path,
-        {
-            "run_id": effective_run_id,
-            "task_count": len(task_artifacts),
-            "succeeded_task_count": sum(1 for artifact in task_artifacts if artifact.succeeded),
-            "max_workers": effective_workers,
-            "tasks": [artifact.to_dict() for artifact in task_artifacts],
-        },
-    )
+    if config.run.write_summary:
+        summary_path = run_output_dir / "summary.json"
+        _write_json(
+            summary_path,
+            {
+                "run_id": effective_run_id,
+                "task_count": len(task_artifacts),
+                "succeeded_task_count": sum(1 for artifact in task_artifacts if artifact.succeeded),
+                "max_workers": effective_workers,
+                "tasks": [artifact.to_dict() for artifact in task_artifacts],
+            },
+        )
     return run_output_dir, task_artifacts

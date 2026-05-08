@@ -31,12 +31,15 @@ class AgentConfig:
     max_tokens: int = 16384
     timeout: int = 120
     max_retries: int = 3
+    workflow_mode: str = "soft"
 
 
 @dataclass(frozen=True, slots=True)
 class RunConfig:
     output_dir: Path = field(default_factory=_default_run_output_dir)
     run_id: str | None = None
+    nest_run_id: bool = True
+    write_summary: bool = True
     max_workers: int = 8
     task_timeout_seconds: int = 600
     timeout_easy: int = 120
@@ -62,6 +65,19 @@ def _path_value(raw_value: str | None, default_value: Path) -> Path:
     return (PROJECT_ROOT / candidate).resolve()
 
 
+def _bool_value(raw_value: object, default_value: bool) -> bool:
+    if raw_value is None:
+        return default_value
+    if isinstance(raw_value, bool):
+        return raw_value
+    normalized = str(raw_value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    raise ValueError(f"Invalid boolean value: {raw_value}")
+
+
 def load_app_config(config_path: Path) -> AppConfig:
     payload = yaml.safe_load(config_path.read_text()) or {}
     dataset_defaults = DatasetConfig()
@@ -84,6 +100,7 @@ def load_app_config(config_path: Path) -> AppConfig:
         max_tokens=int(agent_payload.get("max_tokens", agent_defaults.max_tokens)),
         timeout=int(agent_payload.get("timeout", agent_defaults.timeout)),
         max_retries=int(agent_payload.get("max_retries", agent_defaults.max_retries)),
+        workflow_mode=str(agent_payload.get("workflow_mode", agent_defaults.workflow_mode)),
     )
     raw_run_id = run_payload.get("run_id")
     run_id = run_defaults.run_id
@@ -94,6 +111,8 @@ def load_app_config(config_path: Path) -> AppConfig:
     run_config = RunConfig(
         output_dir=_path_value(run_payload.get("output_dir"), run_defaults.output_dir),
         run_id=run_id,
+        nest_run_id=_bool_value(run_payload.get("nest_run_id"), run_defaults.nest_run_id),
+        write_summary=_bool_value(run_payload.get("write_summary"), run_defaults.write_summary),
         max_workers=int(run_payload.get("max_workers", run_defaults.max_workers)),
         task_timeout_seconds=int(run_payload.get("task_timeout_seconds", run_defaults.task_timeout_seconds)),
         timeout_easy=int(run_payload.get("timeout_easy", run_defaults.timeout_easy)),
@@ -107,9 +126,21 @@ def load_app_config(config_path: Path) -> AppConfig:
 
 def load_app_config_from_env() -> AppConfig:
     import os
+    dataset = DatasetConfig(
+        root_path=Path(os.environ.get("DATASET_ROOT", "/input")),
+    )
     agent = AgentConfig(
         model=os.environ.get("MODEL_NAME", "qwen3.5-35b-a3b"),
         api_base=os.environ.get("MODEL_API_URL", ""),
         api_key=os.environ.get("MODEL_API_KEY", ""),
+        workflow_mode=os.environ.get("WORKFLOW_MODE", "soft"),
     )
-    return AppConfig(agent=agent)
+    run = RunConfig(
+        output_dir=Path(os.environ.get("OUTPUT_DIR", "/output")),
+        run_id=None,
+        nest_run_id=False,
+        write_summary=False,
+        max_workers=int(os.environ.get("MAX_WORKERS", "8")),
+        task_timeout_seconds=int(os.environ.get("TASK_TIMEOUT_SECONDS", "600")),
+    )
+    return AppConfig(dataset=dataset, agent=agent, run=run)
